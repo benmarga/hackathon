@@ -1,63 +1,80 @@
-import os
 import socket
+import struct
 import sys
 import threading
-import random
-import colorama
-import colors as color
 
 
 class Client:
     def __init__(self, ip, port):
         self.ip = ip
         self.port = port
-        self.team = "yosi-oren\n"
-        self.recv_data = False
+        self.group_name = "AHMEAD\n"
+        self.rcv_data = False
 
-    def looking_for_server(self):
-        # Creates a thread to start looking for server.
-        thread = threading.Thread(target=self.looking)
-        thread.start()
+    def start_looking_for_server(self):
+        looking_thread = threading.Thread(target=self.look_for_server)
+        looking_thread.start()
 
-    def looking(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        color.print("Client started, listening for offer requests...")
-        # connect client on server port
-        try:
-            sock.bind(('', self.port))
-        except:
-            self.looking()
-        # Message arrives
-        message = sock.recvfrom(1024)[0]
+    def look_for_server(self):
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        print("Client started, listening for offer requests...")
+        while True:
+            try:
+                client_socket.bind(('', self.port))
+            except:
+                continue
+            # Receives Message
+            message, address = client_socket.recvfrom(1024)
+            try:
+                magic_cookie, message_type, port_tcp = struct.unpack('Ibh', message)
+            except:
+                continue
+            if magic_cookie != 0xfeedbeef: continue
+            break
+        print("Received offer from",address[0],"attempting to connect...")
+        self.connecting_to_Server(address[0], port_tcp)
 
-        magic_cookie = message[:4]
-        message_type = message[4]
-        tcp_port = message[5:]
-        self.connect(int.from_bytes(
-            tcp_port, byteorder='big', signed=False))
+    def connecting_to_Server(self, tcp_ip, tcp_port):
+        tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # connect to tcp server
+        while True:
+            try:
+                tcp_socket.connect((tcp_ip, tcp_port))
+                print("sending request")
 
-    def connect(self, port):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            sock.connect((self.ip, port))
-        except:
-            self.looking()
-        sock.send(bytes(self.team, encoding='utf8'))
-        data = str(sock.recv(1024), 'utf-8')
-        color.print(data)
-        thread = threading.Thread(target=self.recv_Data, args=(sock,))
-        thread.start()
-        while not self.recv_data:
-            os.system("stty raw -echo")
-            c = sys.stdin.read(1)
-            sock.send(bytes(c, encoding='utf8'))
-            os.system("stty -raw echo")
-        sock.close()
+                break
+            except:
+                pass
 
-    def recv_Data(self, sock):
-        while not self.recv_data:
-            data = str(sock.recv(8), 'utf-8')
+        # Sending team name
+        tcp_socket.send(bytes(self.group_name, encoding='utf8'))
+
+        # Receive data from Server
+        data = str(tcp_socket.recv(1024), 'utf-8')
+        print(data)
+
+        # Setting blocking to false, Data to none and removing key presses representation
+        data = None
+        tcp_socket.setblocking(False)
+        # os.system("stty raw -echo")
+        while True:
+            # if data is recieved it will stop and print, else it will send every key press to the server.
+            try:
+                data = tcp_socket.recv(1024)
+            except:
+                pass
             if data:
-                self.recv_data = True
-                os.system("stty -raw echo")
-                color.print(data)
+                # os.system("stty -raw echo")
+                data = str(data, 'utf-8')
+                self.rcv_data = True
+                print(data)
+                break
+            else:
+                keyboard_input = sys.stdin.read(1)
+                tcp_socket.send(bytes(keyboard_input, encoding='utf8'))
+
+        tcp_socket.close()
+
+
+client = Client("", 13117)
+client.start_looking_for_server()
