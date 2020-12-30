@@ -1,3 +1,4 @@
+import sys
 import time
 import socket
 import threading
@@ -63,6 +64,7 @@ class Server:
             self.teamB[team_name] += num_of_chars
 
 
+sys.stdout.write("\033[1;36m")
 print(f'Server started, listening on IP address {socket.gethostbyname(socket.gethostname())}')
 while True:
     server = Server(2039)

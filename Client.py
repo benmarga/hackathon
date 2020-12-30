@@ -33,6 +33,7 @@ class Client:
         os.system("stty -raw echo")
 
 
+sys.stdout.write("\033[1;36m")
 print("Client started, listening for offer requests...")
 while True:
     client = Client(13117, 2039)
@@ -49,6 +50,7 @@ while True:
             if magic_cookie != 0xfeedbeef or message_type != 0x2:
                 continue
             # connecting to server
+            sys.stdout.write("\033[1;34m")
             print(f'Received offer from {addr[0]}, attempting to connect...')
             client.tcp_socket.connect((addr[0], server_port))
             # send client team name
@@ -64,6 +66,7 @@ while True:
     try:
         getch_thread = Thread(target=client.get_char_input)
         # START MSG
+        sys.stdout.write("\033[0;32m")
         print(client.tcp_socket.recv(2048).decode())
         client.game_mode = True
         getch_thread.start()
@@ -71,7 +74,9 @@ while True:
         client.game_mode = False
         getch_thread.join()
         # END
+        sys.stdout.write("\033[1;31m")
         print(msg)
+        sys.stdout.write("\033[1;36m")
         print("Server disconnected, listening for offer requests...")
         client.tcp_socket.close()
     except:
