@@ -45,19 +45,14 @@ class Server:
         for name in self.teamB:
             msg += name
         msg += "\nStart pressing keys on your keyboard as fast as you can!!"
-
-        # sending the msg to coressponding client.
         links['sock'].send(msg.encode())
         num_of_chars = 0
         time_0 = time.time()
-        # for 10 seconds, recive pressed keys from client.
         while time.time() - time_0 <= 10:
             incoming_character, nothing1, nothing2 = select([links['sock']], [], [], 0)
             if incoming_character:
                 non = links['sock'].recv(2048).decode()
                 num_of_chars += 1
-
-        # add the accumulated key presses to the team counters dictionary.
         if team_name in self.teamA:
             self.teamA[team_name] += num_of_chars
         else:
@@ -94,7 +89,7 @@ while True:
             print("There is no players - restarting server.")
             for client in server.clients:
                 server.clients[client]['sock'].close()
-            continue  ######### it was return. check if need changes
+            continue
         which = True
         for team in server.clients.keys():
             if which:
@@ -105,7 +100,6 @@ while True:
                 server.teamB[team] = 0
             start_game = threading.Thread(target=server.one_client_game_thread, args=(server.clients[team], team))
             server.game_threads[team] = start_game
-            # start game for each group as a thread.
             start_game.start()
 
         for thread in server.game_threads:

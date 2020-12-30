@@ -13,7 +13,7 @@ class Client:
         self.udp_port = udp_port
         self.tcp_port = tcp_port
         self.game_mode = False
-        self.name = "GOGO\n"
+        self.name = "The-SockeTeam\n"
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
