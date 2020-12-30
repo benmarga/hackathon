@@ -1,109 +1,147 @@
-import random
-import socket
-import struct
-import threading
 import time
-from _thread import start_new_thread
+import socket
+import threading
+import struct
+from select import select
 
 
 class Server:
-    def __init__(self, ip, tcp_port, udp_port):
-        self.ip = ip
-        self.tcp_port = tcp_port
-        self.udp_port = udp_port
-        self.broadcast_mode = True
-        self.num_of_players = 0
-        self.groups = []
-        self.score = [0, 0]
-        self.lock = threading.Lock()
-        self.game_mode = False
+    def __init__(self, port):
+        # init server settings
+        self.ip = socket.gethostbyname(socket.gethostname())
+        self.port = port
+        self.clients = {}
+        self.game_threads = {}
+        self.teamA = {}
+        self.teamB = {}
+        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    def start_broadcast(self):
-        broadcast_thread = threading.Thread(target=self.broadcast)
-        broadcast_thread.start()
-
-    def broadcast(self):
-        print("Server started, listening on IP address", self.ip)
-        while True:
-            # if not self.gamemode
-            time_0 = time.time()
-            server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            server_socket.settimeout(0.2)
-            while time.time() - time_0 < 10:
-                server_socket.sendto(struct.pack('Ibh', 0xfeedbeef, 2, 2039), ('<broadcast>', self.udp_port))
-                time.sleep(1)
-            self.game_mode = True
-            self.broadcast_mode = False
-
-    def start_server(self):
-        thread = threading.Thread(target=self.start_tcp_server)
-        thread.start()
-
-    def start_tcp_server(self):
-
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.bind((self.ip, self.tcp_port))
-        self.start_broadcast()
-        server_socket.listen()
-        while True:
-            print("b")
-            connection, address = server_socket.accept()
-            print("here")
-
-            self.lock.acquire()
-            self.num_of_players += 1
-            if self.num_of_players == 1:
-                random.shuffle(self.groups)
-            self.lock.release()
-
-            # Start a new thread and return its identifier
-            start_new_thread(self.make_game, (connection,))
-        server_socket.close()
-
-    def make_game(self, connection):
-        print("work tcp connection")
-        group_name = str(connection.recv(1024), 'utf-8')
-        self.groups.append(group_name)
-        while not self.game_mode: time.sleep(1)
-        group_1 = ''
-        group_2 = ''
-        for idx, group in enumerate(self.groups):
-            if idx % 2 == 0:
-                group_1 += group
-            else:
-                group_2 += group
-        connection.send(bytes(
-            f"Welcome to Keyboard Spamming Battle Royale.\nGroup 1:\n{group_1}Group 2:\n{group_2}\nStart pressing keys on your keyboard as fast as you can!!",
-            encoding='utf8'))
-        idx = self.groups.index(group_name)
-        if idx % 2 == 0:
-            client_team = 0
-        else:
-            client_team = 1
-        # While not past 10 seconds - listen to key presses.
+    def brodcasting(self, udp_socket):
+        # broadcasting to clients udp messages
+        msg = struct.pack('Ibh', 0xfeedbeef, 0x2, self.port)
         time_0 = time.time()
-        while time.time() - time_0 < 10:
-            # data received from client
-            data = connection.recv(1024)
-            if not data:
+        while time.time() - time_0 <= 10:
+            udp_socket.sendto(msg, ('<broadcast>', 13117))
+            time.sleep(1)
+
+    def tcp_connect(self, t, sock):
+        # connecting to client
+        while t.is_alive():
+            try:
+                client_socket, address = sock.accept()
+                # adr
+                self.clients[client_socket.recv(2048).decode()] = {"sock": client_socket}
+            except socket.timeout:
                 continue
-            self.score[client_team] += 1
-        if self.score[0] > self.score[1]:
-            win = 0
-            win_group = self.groups[0]
+
+    def searching_clients(self):
+        # looking for clients
+        self.udp_socket.bind((self.ip, self.port))
+        self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.tcp_socket.bind((self.ip, self.port))
+        self.tcp_socket.listen()
+        self.tcp_socket.settimeout(1)
+        # init threads for parallel running
+        broadcasting = threading.Thread(target=self.brodcasting, args=(self.udp_socket,))
+        connecting = threading.Thread(target=self.tcp_connect, args=(broadcasting, self.tcp_socket))
+        broadcasting.start()
+        connecting.start()
+        broadcasting.join()
+        connecting.join()
+        self.udp_socket.close()
+        self.tcp_socket.close()
+
+    def game_play(self):
+        if len(self.clients) == 0:
+            print("There is no players - restarting server.")
+            for client in self.clients:
+                self.clients[client]['sock'].close()
+            return
+
+        which = True
+        for team in self.clients.keys():
+            if which:
+                which = False
+                self.teamA[team] = 0
+            else:
+                which = True
+                self.teamB[team] = 0
+            start_game = threading.Thread(target=self.one_client_game_thread, args=(self.clients[team], team))
+            self.game_threads[team] = start_game
+            # start game for each group as a thread.
+            start_game.start()
+
+        for thread in self.game_threads:
+            self.game_threads[thread].join()
+        if len(self.teamA.keys()) == 0:
+            score_1 = 0
         else:
-            win = 1
-            win_group = self.groups[1]
+            score_1 = sum(self.teamA.values())
+        if len(self.teamB.keys()) == 0:
+            score_2 = 0
+        else:
+            score_2 = sum(self.teamB.values())
+        # end game msg
+        msg = "\nGame over!\n"
+        msg += f"Group 1 typed in {str(score_1)} characters. Group 2 typed in {str(score_2)} characters.\n"
+        if score_1 > score_2:
+            msg += "Group 1 wins!\n\nCongratulations to the winners:\n==\n"
+            for name in self.teamA:
+                msg += name
+        elif score_1 < score_2:
+            msg += "Group 2 wins!\n\nCongratulations to the winners:\n==\n"
+            for name in self.teamB:
+                msg += name
+        else:
+            msg += "DRAW\n "
+        for team in self.clients:
+            self.clients[team]['sock'].send(msg.encode())
+            self.clients[team]['sock'].close()
+        print("Game over, sending out offer requests...")
 
-        # Game Over Message
-        message = f"\nGame over!\nGroup 1 typed in {self.score[0]} characters. Group 2 typed in {self.score[1]} characters.\nGroup {win + 1} wins!\n\nGlobal Results:\nCongratulations to the winners:\n{win_group}"
-        connection.send(bytes(message, encoding='utf8'))
-        self.game_mode = False
-        # connection closed
-        connection.close()
+    def one_client_game_thread(self, links, team_name):
+        msg = """Welcome to Keyboard Spamming Battle Royale.\nGroup 1:\n==\n"""
+        for name in self.teamA:
+            msg += name
+        msg += """Group 2:\n==\n"""
+        for name in self.teamB:
+            msg += name
+        msg += "\nStart pressing keys on your keyboard as fast as you can!!"
+
+        # sending the msg to coressponding client.
+        links['sock'].send(msg.encode())
+        num_of_chars = 0
+        time_0 = time.time()
+        # for 10 seconds, recive pressed keys from client.
+        while time.time() - time_0 <= 10:
+            incoming_character, nothing1, nothing2 = select([links['sock']], [], [], 0)
+            if incoming_character:
+                non = links['sock'].recv(2048).decode()
+                num_of_chars += 1
+
+        # add the accumulated key presses to the team counters dictionary.
+        if team_name in self.teamA:
+            self.teamA[team_name] += num_of_chars
+        else:
+            self.teamB[team_name] += num_of_chars
 
 
-server = Server("", 2039, 13117)
-server.start_server()
+print(f'Server started, listening on IP address {socket.gethostbyname(socket.gethostname())}')
+while True:
+    server = Server(2039)
+    try:
+        server.searching_clients()
+    except:
+        for t in server.clients:
+            server.clients[t]['sock'].close()
+        server.tcp_socket.close()
+        server.udp_socket.close()
+        continue
+    try:
+        server.game_play()
+    except:
+        for t in server.clients:
+            server.clients[t]['sock'].close()
+        continue
