@@ -36,71 +36,6 @@ class Server:
             except socket.timeout:
                 continue
 
-    def searching_clients(self):
-        # looking for clients
-        self.udp_socket.bind((self.ip, self.port))
-        self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        self.tcp_socket.bind((self.ip, self.port))
-        self.tcp_socket.listen()
-        self.tcp_socket.settimeout(1)
-        # init threads for parallel running
-        broadcasting = threading.Thread(target=self.brodcasting, args=(self.udp_socket,))
-        connecting = threading.Thread(target=self.tcp_connect, args=(broadcasting, self.tcp_socket))
-        broadcasting.start()
-        connecting.start()
-        broadcasting.join()
-        connecting.join()
-        self.udp_socket.close()
-        self.tcp_socket.close()
-
-    def game_play(self):
-        if len(self.clients) == 0:
-            print("There is no players - restarting server.")
-            for client in self.clients:
-                self.clients[client]['sock'].close()
-            return
-
-        which = True
-        for team in self.clients.keys():
-            if which:
-                which = False
-                self.teamA[team] = 0
-            else:
-                which = True
-                self.teamB[team] = 0
-            start_game = threading.Thread(target=self.one_client_game_thread, args=(self.clients[team], team))
-            self.game_threads[team] = start_game
-            # start game for each group as a thread.
-            start_game.start()
-
-        for thread in self.game_threads:
-            self.game_threads[thread].join()
-        if len(self.teamA.keys()) == 0:
-            score_1 = 0
-        else:
-            score_1 = sum(self.teamA.values())
-        if len(self.teamB.keys()) == 0:
-            score_2 = 0
-        else:
-            score_2 = sum(self.teamB.values())
-        # end game msg
-        msg = "\nGame over!\n"
-        msg += f"Group 1 typed in {str(score_1)} characters. Group 2 typed in {str(score_2)} characters.\n"
-        if score_1 > score_2:
-            msg += "Group 1 wins!\n\nCongratulations to the winners:\n==\n"
-            for name in self.teamA:
-                msg += name
-        elif score_1 < score_2:
-            msg += "Group 2 wins!\n\nCongratulations to the winners:\n==\n"
-            for name in self.teamB:
-                msg += name
-        else:
-            msg += "DRAW\n "
-        for team in self.clients:
-            self.clients[team]['sock'].send(msg.encode())
-            self.clients[team]['sock'].close()
-        print("Game over, sending out offer requests...")
-
     def one_client_game_thread(self, links, team_name):
         msg = """Welcome to Keyboard Spamming Battle Royale.\nGroup 1:\n==\n"""
         for name in self.teamA:
@@ -132,7 +67,20 @@ print(f'Server started, listening on IP address {socket.gethostbyname(socket.get
 while True:
     server = Server(2039)
     try:
-        server.searching_clients()
+        server.udp_socket.bind((server.ip, server.port))
+        server.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        server.tcp_socket.bind((server.ip, server.port))
+        server.tcp_socket.listen()
+        server.tcp_socket.settimeout(1)
+        # init threads for parallel running
+        broadcasting = threading.Thread(target=server.brodcasting, args=(server.udp_socket,))
+        connecting = threading.Thread(target=server.tcp_connect, args=(broadcasting, server.tcp_socket))
+        broadcasting.start()
+        connecting.start()
+        broadcasting.join()
+        connecting.join()
+        server.udp_socket.close()
+        server.tcp_socket.close()
     except:
         for t in server.clients:
             server.clients[t]['sock'].close()
@@ -140,7 +88,51 @@ while True:
         server.udp_socket.close()
         continue
     try:
-        server.game_play()
+        if len(server.clients) == 0:
+            print("There is no players - restarting server.")
+            for client in server.clients:
+                server.clients[client]['sock'].close()
+            continue  ######### it was return. check if need changes
+        which = True
+        for team in server.clients.keys():
+            if which:
+                which = False
+                server.teamA[team] = 0
+            else:
+                which = True
+                server.teamB[team] = 0
+            start_game = threading.Thread(target=server.one_client_game_thread, args=(server.clients[team], team))
+            server.game_threads[team] = start_game
+            # start game for each group as a thread.
+            start_game.start()
+
+        for thread in server.game_threads:
+            server.game_threads[thread].join()
+        if len(server.teamA.keys()) == 0:
+            score_1 = 0
+        else:
+            score_1 = sum(server.teamA.values())
+        if len(server.teamB.keys()) == 0:
+            score_2 = 0
+        else:
+            score_2 = sum(server.teamB.values())
+        # end game msg
+        msg = "\nGame over!\n"
+        msg += f"Group 1 typed in {str(score_1)} characters. Group 2 typed in {str(score_2)} characters.\n"
+        if score_1 > score_2:
+            msg += "Group 1 wins!\n\nCongratulations to the winners:\n==\n"
+            for name in server.teamA:
+                msg += name
+        elif score_1 < score_2:
+            msg += "Group 2 wins!\n\nCongratulations to the winners:\n==\n"
+            for name in server.teamB:
+                msg += name
+        else:
+            msg += "DRAW\n "
+        for team in server.clients:
+            server.clients[team]['sock'].send(msg.encode())
+            server.clients[team]['sock'].close()
+        print("Game over, sending out offer requests...")
     except:
         for t in server.clients:
             server.clients[t]['sock'].close()
